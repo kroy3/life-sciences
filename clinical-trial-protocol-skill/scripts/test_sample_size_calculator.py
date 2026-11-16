@@ -99,7 +99,8 @@ class TestDropout(unittest.TestCase):
                             self.assertEqual(
                                 sizes["treatment_with_dropout"], ratio * sizes["control_with_dropout"])
 
-    def test_readme_example(self):
+    def test_help_text_example(self):
+        # The first example in the script's --help text.
         sizes = calculate_continuous_sample_size(5.0, 15.0)["sample_size"]
         self.assertEqual((sizes["treatment_with_dropout"], sizes["control_with_dropout"],
                           sizes["total_with_dropout"]), (168, 168, 336))
