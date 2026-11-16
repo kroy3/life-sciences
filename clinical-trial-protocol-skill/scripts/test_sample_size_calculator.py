@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from sample_size_calculator import (  # noqa: E402
+    _with_dropout,
     calculate_binary_sample_size,
     calculate_continuous_sample_size,
 )
@@ -70,6 +71,44 @@ class TestBinary(unittest.TestCase):
         rows = calculate_binary_sample_size(0.60, 0.75)["sensitivity_analysis"]
         self.assertEqual(rows["power_90_percent"]["total"], 406)
         self.assertEqual(rows["effect_size_reduced_10_percent"]["total"], 380)
+
+
+class TestDropout(unittest.TestCase):
+    def results(self, dropout_rate, allocation_ratio):
+        yield calculate_continuous_sample_size(
+            5.0, 15.0, dropout_rate=dropout_rate, allocation_ratio=allocation_ratio)
+        yield calculate_binary_sample_size(
+            0.60, 0.75, dropout_rate=dropout_rate, allocation_ratio=allocation_ratio)
+
+    def test_arms_add_up_to_the_total(self):
+        # Rounding each arm and the total separately once gave 168 + 168 for a total of 335.
+        for dropout in (0.05, 0.1, 0.15, 0.2, 0.3):
+            for ratio in (0.5, 1.0, 1.5, 2.0, 3.0):
+                for result in self.results(dropout, ratio):
+                    with self.subTest(type=result["endpoint_type"], dropout=dropout, ratio=ratio):
+                        sizes = result["sample_size"]
+                        self.assertEqual(
+                            sizes["treatment_with_dropout"] + sizes["control_with_dropout"],
+                            sizes["total_with_dropout"])
+                        # Each arm still has its full size once the expected dropouts leave.
+                        self.assertGreaterEqual(
+                            sizes["treatment_with_dropout"] * (1 - dropout), sizes["treatment_arm"] - 1e-9)
+                        self.assertGreaterEqual(
+                            sizes["control_with_dropout"] * (1 - dropout), sizes["control_arm"] - 1e-9)
+                        if ratio in (1.0, 2.0, 3.0):
+                            self.assertEqual(
+                                sizes["treatment_with_dropout"], ratio * sizes["control_with_dropout"])
+
+    def test_readme_example(self):
+        sizes = calculate_continuous_sample_size(5.0, 15.0)["sample_size"]
+        self.assertEqual((sizes["treatment_with_dropout"], sizes["control_with_dropout"],
+                          sizes["total_with_dropout"]), (168, 168, 336))
+
+    def test_floating_point_error_does_not_add_a_participant(self):
+        # 21 / (1 - 0.3) is 30.000000000000004 in floating point, but 21 people need 30 enrolled.
+        for n in (21, 42, 84):
+            with self.subTest(n=n):
+                self.assertEqual(_with_dropout(n, n, 1.0, 0.3), (n * 10 // 7, n * 10 // 7))
 
 
 class TestInputs(unittest.TestCase):

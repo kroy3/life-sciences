@@ -30,6 +30,21 @@ def _continuous_arms(z_alpha: float, z_beta: float, cohens_d: float, allocation_
     return math.ceil(round(r * n_control, 9)), n_control
 
 
+def _with_dropout(n_treatment: int, n_control: int, allocation_ratio: float, dropout_rate: float):
+    """Return (n_treatment, n_control) enlarged so each arm keeps its size after dropout.
+
+    Each arm is rounded up on its own, and the total is their sum, so the arms always add up to
+    the total. As in _continuous_arms, the control arm is rounded first and the treatment arm is
+    at least r times it, so a whole-number r keeps the groups exactly in that ratio.
+    """
+    keep = 1 - dropout_rate
+    # round() so floating-point error (21 / 0.7 = 30.000000000000004) cannot add a participant
+    n_control = math.ceil(round(n_control / keep, 9))
+    n_treatment = max(math.ceil(round(n_treatment / keep, 9)),
+                      math.ceil(round(allocation_ratio * n_control, 9)))
+    return n_treatment, n_control
+
+
 def _settings_error(alpha: float, power: float, dropout_rate: float, design: str):
     """Return an error message for settings the calculator cannot use, or None if they are fine."""
     if design != "superiority":
@@ -114,19 +129,21 @@ def calculate_continuous_sample_size(
     total_n = n_treatment + n_control
 
     # Adjust for dropout
-    total_with_dropout = math.ceil(total_n / (1 - dropout_rate))
-    n_treatment_with_dropout = math.ceil(n_treatment / (1 - dropout_rate))
-    n_control_with_dropout = math.ceil(n_control / (1 - dropout_rate))
+    n_treatment_with_dropout, n_control_with_dropout = _with_dropout(
+        n_treatment, n_control, allocation_ratio, dropout_rate)
+    total_with_dropout = n_treatment_with_dropout + n_control_with_dropout
 
     # Sensitivity analysis: 90% power
     z_beta_90 = stats.norm.ppf(0.90)
-    total_90 = sum(_continuous_arms(z_alpha, z_beta_90, cohens_d, allocation_ratio))
-    total_90_dropout = math.ceil(total_90 / (1 - dropout_rate))
+    arms_90 = _continuous_arms(z_alpha, z_beta_90, cohens_d, allocation_ratio)
+    total_90 = sum(arms_90)
+    total_90_dropout = sum(_with_dropout(*arms_90, allocation_ratio, dropout_rate))
 
     # Sensitivity analysis: Effect size reduced by 10%
     cohens_d_reduced = cohens_d * 0.9
-    total_reduced = sum(_continuous_arms(z_alpha, z_beta, cohens_d_reduced, allocation_ratio))
-    total_reduced_dropout = math.ceil(total_reduced / (1 - dropout_rate))
+    arms_reduced = _continuous_arms(z_alpha, z_beta, cohens_d_reduced, allocation_ratio)
+    total_reduced = sum(arms_reduced)
+    total_reduced_dropout = sum(_with_dropout(*arms_reduced, allocation_ratio, dropout_rate))
 
     return {
         "endpoint_type": "continuous",
@@ -258,21 +275,23 @@ def calculate_binary_sample_size(
     total_n = n_treatment + n_control
 
     # Adjust for dropout
-    total_with_dropout = math.ceil(total_n / (1 - dropout_rate))
-    n_treatment_with_dropout = math.ceil(n_treatment / (1 - dropout_rate))
-    n_control_with_dropout = math.ceil(n_control / (1 - dropout_rate))
+    n_treatment_with_dropout, n_control_with_dropout = _with_dropout(
+        n_treatment, n_control, allocation_ratio, dropout_rate)
+    total_with_dropout = n_treatment_with_dropout + n_control_with_dropout
 
     # Sensitivity analysis: 90% power
     z_beta_90 = stats.norm.ppf(0.90)
-    total_90 = sum(_binary_arms(z_alpha, z_beta_90, p1, p2, allocation_ratio))
-    total_90_dropout = math.ceil(total_90 / (1 - dropout_rate))
+    arms_90 = _binary_arms(z_alpha, z_beta_90, p1, p2, allocation_ratio)
+    total_90 = sum(arms_90)
+    total_90_dropout = sum(_with_dropout(*arms_90, allocation_ratio, dropout_rate))
 
     # Sensitivity analysis: Effect size reduced by 10%
     effect_reduced = effect_size * 0.9
     p2_reduced = p1 + effect_reduced if p2 > p1 else p1 - effect_reduced
 
-    total_reduced = sum(_binary_arms(z_alpha, z_beta, p1, p2_reduced, allocation_ratio))
-    total_reduced_dropout = math.ceil(total_reduced / (1 - dropout_rate))
+    arms_reduced = _binary_arms(z_alpha, z_beta, p1, p2_reduced, allocation_ratio)
+    total_reduced = sum(arms_reduced)
+    total_reduced_dropout = sum(_with_dropout(*arms_reduced, allocation_ratio, dropout_rate))
 
     return {
         "endpoint_type": "binary",
